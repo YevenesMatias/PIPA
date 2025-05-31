@@ -1,0 +1,584 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Club PIPA - INACAP Punta Arenas</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Roboto:wght@400;700&family=Orbitron:wght@500;700&display=swap" rel="stylesheet">
+    <script type="module">
+        import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
+        import { getAuth, signInAnonymously, onAuthStateChanged, signInWithCustomToken } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
+        import { getFirestore, collection, addDoc, serverTimestamp, setLogLevel } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
+
+        // Firebase configuration
+        const firebaseConfig = typeof __firebase_config !== 'undefined' ? JSON.parse(__firebase_config) : {
+            apiKey: "TU_API_KEY", // Fallback, should be replaced by __firebase_config
+            authDomain: "TU_AUTH_DOMAIN",
+            projectId: "TU_PROJECT_ID",
+            storageBucket: "TU_STORAGE_BUCKET",
+            messagingSenderId: "TU_MESSAGING_SENDER_ID",
+            appId: "TU_APP_ID"
+        };
+
+        const appId = typeof __app_id !== 'undefined' ? __app_id : 'pipa-club-website-v3';
+
+        // Initialize Firebase
+        const app = initializeApp(firebaseConfig);
+        const auth = getAuth(app);
+        const db = getFirestore(app);
+        setLogLevel('debug');
+
+        let userId = null; 
+
+        async function setupAuth() {
+            try {
+                if (typeof __initial_auth_token !== 'undefined' && __initial_auth_token) {
+                    // Sign in with custom token if available
+                    await signInWithCustomToken(auth, __initial_auth_token);
+                } else {
+                    // Otherwise, sign in anonymously
+                    await signInAnonymously(auth);
+                }
+            } catch (error) {
+                console.error("Error during sign-in:", error);
+                const registrationStatus = document.getElementById('registrationStatus');
+                if (registrationStatus) {
+                    registrationStatus.textContent = 'Error de autenticación. Por favor, inténtalo más tarde.';
+                    registrationStatus.className = 'mt-4 text-red-400 text-sm text-center';
+                }
+            }
+        }
+
+        // Listen for authentication state changes
+        onAuthStateChanged(auth, (user) => {
+            if (user) {
+                userId = user.uid; // User is signed in
+                console.log("User authenticated with UID:", userId);
+            } else {
+                console.log("User not authenticated or auth state pending. Current userId:", userId);
+                 if (!userId) { 
+                    userId = crypto.randomUUID();
+                    console.log("User not authenticated, generated local fallback UID:", userId);
+                }
+            }
+        });
+
+        // Event listener for when the DOM is fully loaded
+        document.addEventListener('DOMContentLoaded', async () => {
+            await setupAuth(); // Perform authentication setup
+
+            const registrationForm = document.getElementById('registrationForm');
+            const registrationStatus = document.getElementById('registrationStatus');
+
+            if (registrationForm) {
+                registrationForm.addEventListener('submit', async function(event) {
+                    event.preventDefault(); // Prevent default form submission
+                    registrationStatus.textContent = 'Procesando inscripción...';
+                    registrationStatus.className = 'mt-4 text-blue-400 text-sm text-center';
+
+                    if (!auth.currentUser && !userId) { 
+                        console.warn("UserID not available. Attempting auth setup again...");
+                        await setupAuth(); 
+                    }
+                    
+                    if (auth.currentUser) {
+                        userId = auth.currentUser.uid;
+                    } else if (!userId) { 
+                        console.error("Critical: UserID is not available after auth setup. Cannot submit form.");
+                        registrationStatus.textContent = 'Error crítico de autenticación. Por favor, recarga la página e intenta de nuevo.';
+                        registrationStatus.className = 'mt-4 text-red-400 text-sm text-center';
+                        return;
+                    }
+                    console.log("UserID for form submission:", userId);
+
+
+                    // Collect form data
+                    const formData = new FormData(registrationForm);
+                    const memberData = {
+                        nombre: formData.get('nombre'),
+                        rut: formData.get('rut'),
+                        carrera: formData.get('carrera'),
+                        semestre: formData.get('semestre'),
+                        emailInacap: formData.get('emailInacap'),
+                        motivacion: formData.get('motivacion'),
+                        timestamp: serverTimestamp(), // Add server timestamp
+                        userId: userId // Include the user's ID
+                    };
+
+                    try {
+                        // Add document to Firestore
+                        const docRef = await addDoc(collection(db, `artifacts/${appId}/public/data/inscripciones`), memberData);
+                        registrationStatus.textContent = '¡Inscripción exitosa! Te hemos añadido a la comunidad PIPA.';
+                        registrationStatus.className = 'mt-4 text-green-400 text-sm font-semibold text-center';
+                        registrationForm.reset(); // Reset the form
+                        sendConfirmationEmail(memberData.emailInacap, memberData.nombre); // Simulate sending confirmation email
+                    } catch (e) {
+                        console.error("Error adding document: ", e);
+                        registrationStatus.textContent = 'Error al registrar. Por favor, inténtalo de nuevo. Detalles: ' + e.message;
+                        registrationStatus.className = 'mt-4 text-red-400 text-sm text-center';
+                    }
+                });
+            }
+        });
+
+        // Function to simulate sending a confirmation email
+        function sendConfirmationEmail(email, nombre) {
+            console.log(`Simulando envío de correo de confirmación a ${email} para ${nombre}.`);
+            const emailStatus = document.getElementById('emailConfirmationStatus');
+            if(emailStatus){
+                emailStatus.textContent = `Se ha enviado un correo de confirmación (simulado) a ${email}.`;
+                emailStatus.className = 'mt-2 text-blue-400 text-sm text-center';
+            }
+        }
+    </script>
+    <style>
+        :root {
+            --inacap-red: #D42D25;
+            --dark-bg: #111827; 
+            --medium-bg: #1F2937; 
+            --light-text: #F9FAFB; 
+            --medium-text: #9CA3AF; 
+        }
+        body {
+            font-family: 'Roboto', sans-serif;
+            background-color: var(--dark-bg);
+            color: var(--light-text);
+        }
+        h1, h2, h3, .section-title {
+            font-family: 'Orbitron', sans-serif; 
+        }
+        .inacap-red { color: var(--inacap-red); }
+        .bg-inacap-red { background-color: var(--inacap-red); }
+
+        .btn-primary {
+            background-color: var(--inacap-red);
+            color: white;
+            padding: 0.75rem 2rem; 
+            border-radius: 0.375rem; 
+            font-weight: 700; 
+            transition: all 0.3s ease;
+            text-transform: uppercase;
+            letter-spacing: 0.05em; 
+            border: 2px solid var(--inacap-red);
+        }
+        .btn-primary:hover {
+            background-color: transparent;
+            color: var(--inacap-red);
+            transform: scale(1.05);
+        }
+        .form-input {
+            background-color: var(--medium-bg); 
+            border-radius: 0.375rem; 
+            border: 1px solid #4B5563; 
+            padding: 0.75rem 1rem;
+            width: 100%;
+            color: var(--light-text);
+            transition: border-color 0.3s ease, box-shadow 0.3s ease;
+        }
+        .form-input::placeholder {
+            color: var(--medium-text); 
+        }
+        .form-input:focus {
+            border-color: var(--inacap-red);
+            box-shadow: 0 0 0 3px rgba(212, 45, 37, 0.4);
+            outline: none;
+            background-color: #374151; 
+        }
+        .section-title {
+            font-weight: 700; 
+            color: var(--light-text);
+            margin-bottom: 1rem; 
+            text-align: center;
+            letter-spacing: 0.02em; 
+        }
+         .section-title span { 
+            color: var(--inacap-red);
+        }
+        .section-subtitle {
+            color: var(--medium-text);
+            text-align: center;
+            margin-bottom: 3rem; 
+            max-width: 700px; 
+            margin-left: auto;
+            margin-right: auto;
+            line-height: 1.6; 
+        }
+        .hero-bg { 
+             background: linear-gradient(rgba(17, 24, 39, 0.8), rgba(17, 24, 39, 0.9)),
+                         url('IMG/foto.jpg'); 
+             background-size: cover;
+             background-position: center;
+        }
+        header nav a:not(.btn-primary) {
+            position: relative;
+            color: var(--medium-text);
+            transition: color 0.3s ease;
+            padding: 5px 0;
+        }
+        header nav a:not(.btn-primary):hover {
+            color: var(--light-text);
+        }
+        header nav a:not(.btn-primary)::after {
+            content: '';
+            position: absolute;
+            width: 0;
+            height: 2px;
+            bottom: 0;
+            left: 50%;
+            background-color: var(--inacap-red);
+            transition: all 0.3s ease;
+            transform: translateX(-50%);
+        }
+        header nav a:not(.btn-primary):hover::after,
+        header nav a.active-link:not(.btn-primary)::after { 
+            width: 100%;
+        }
+        header nav a.active-link:not(.btn-primary) { 
+            color: var(--light-text);
+            font-weight: bold; 
+        }
+        .meetings-bg { 
+            color: var(--light-text); 
+            text-align: center;
+            position: relative; 
+        }
+        .meetings-content {
+            background-color: var(--dark-bg); 
+            border-radius: 0.75rem; 
+            max-width: 700px; 
+            margin: 0 auto;
+            box-shadow: 0 15px 30px -5px rgba(0,0,0,0.6), 0 25px 50px -12px rgba(0,0,0,0.4); 
+            border: 3px solid var(--dark-bg); 
+            position: relative;
+            z-index: 1;
+        }
+        .meetings-content h2 .leica-highlight {
+            color: #FFFFFF; 
+            font-weight: bold;
+            text-shadow: 0 0 8px rgba(255, 255, 255, 0.3); 
+        }
+        .meetings-content .location-info {
+            margin-bottom: 2.5rem; 
+            color: var(--medium-text);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 0.5rem; 
+        }
+        .meetings-content .location-info svg {
+            width: 1.5rem; 
+            height: 1.5rem; 
+            color: var(--medium-text);
+        }
+        .meetings-time {
+            background-color: var(--light-text); 
+            color: var(--inacap-red); 
+            border-radius: 0.5rem; 
+            font-weight: bold; 
+            letter-spacing: 0.05em; 
+            display: inline-flex; 
+            align-items: center;
+            gap: 0.75rem; 
+            border: 2px solid var(--inacap-red); 
+            box-shadow: 0 5px 10px rgba(0,0,0,0.2); 
+        }
+         .meetings-time svg {
+            width: 2rem; 
+            height: 2rem; 
+        }
+
+
+        .activity-card { 
+            background-color: var(--medium-bg); 
+            border-radius: 0.5rem; 
+            border: 1px solid #374151; 
+            box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06); 
+            padding: 2rem; 
+            text-align: center;
+            transition: transform 0.3s ease-in-out, border-color 0.3s ease-in-out;
+        }
+        .activity-card:hover {
+            transform: translateY(-5px);
+            border-color: var(--inacap-red);
+        }
+        .activity-icon { 
+            width: 3rem; 
+            height: 3rem; 
+            margin: 0 auto 1rem; 
+            color: var(--inacap-red);
+        }
+
+    </style>
+</head>
+<body class="text-gray-100">
+
+    <header class="bg-gray-900 shadow-lg sticky top-0 z-50 border-b border-gray-700">
+        <div class="container mx-auto px-4 sm:px-6 py-3 sm:py-4 flex justify-between items-center">
+            <div class="flex items-center space-x-2 sm:space-x-3">
+                <img src="IMG/logo.png" alt="Logo INACAP" class="h-8 sm:h-10 md:h-12 filter brightness-0 invert" onerror="this.alt='Logo INACAP'; this.src='https://placehold.co/150x50/cccccc/ffffff?text=INACAP';" >
+                <h1 class="text-xl sm:text-2xl md:text-3xl font-bold">P<span>I</span>P<span>A</span></h1>
+                <style> h1 span { color: var(--inacap-red); } </style> 
+            </div>
+
+            <div class="md:hidden">
+                <button id="mobile-menu-button" class="text-gray-300 hover:text-white focus:outline-none focus:text-white" aria-label="Abrir menú de navegación" aria-expanded="false" aria-controls="mobile-menu">
+                    <svg class="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 6h16M4 12h16m-7 6h7" />
+                    </svg>
+                </button>
+            </div>
+
+            <nav class="hidden md:flex items-center space-x-3 lg:space-x-5 xl:space-x-6 text-sm lg:text-base">
+                <a href="#about" class="smooth-scroll">Nosotros</a>
+                <a href="#activities" class="smooth-scroll">Actividades</a>
+                <a href="#meetings" class="smooth-scroll">Reuniones</a>
+                <a href="#register" class="btn-primary ml-2 md:ml-3 !px-3 md:!px-5 !py-1.5 md:!py-2 text-xs md:text-sm smooth-scroll">Inscríbete</a>
+            </nav>
+        </div>
+        <div id="mobile-menu" class="hidden md:hidden bg-gray-800 border-t border-gray-700" aria-hidden="true">
+            <nav class="flex flex-col items-center space-y-2 py-3">
+                <a href="#about" class="smooth-scroll block px-3 py-2 rounded-md text-base font-medium text-gray-300 hover:bg-gray-700 hover:text-white w-full text-center">Nosotros</a>
+                <a href="#activities" class="smooth-scroll block px-3 py-2 rounded-md text-base font-medium text-gray-300 hover:bg-gray-700 hover:text-white w-full text-center">Actividades</a>
+                <a href="#meetings" class="smooth-scroll block px-3 py-2 rounded-md text-base font-medium text-gray-300 hover:bg-gray-700 hover:text-white w-full text-center">Reuniones</a>
+                <a href="#register" class="btn-primary mt-2 mb-2 !px-6 !py-2 text-sm smooth-scroll w-auto text-center">Inscríbete</a>
+            </nav>
+        </div>
+    </header>
+
+    <section class="hero-bg text-white py-20 sm:py-24 md:py-32 lg:py-40 bg-scroll md:bg-fixed">
+        <div class="container mx-auto px-4 sm:px-6 text-center">
+            <h2 class="text-3xl sm:text-4xl md:text-5xl lg:text-6xl font-bold mb-4 uppercase tracking-wider">
+                Club de Programación <span class="inacap-red">PIPA</span>
+            </h2>
+            <p class="text-lg sm:text-xl md:text-2xl mb-8 sm:mb-10 text-gray-300 font-light">
+                Descubre, crea e innova con nosotros en INACAP Punta Arenas.
+            </p>
+            <a href="#register" class="btn-primary text-base sm:text-lg md:text-xl px-8 sm:px-10 py-3 sm:py-4 smooth-scroll">¡Únete al Código!</a>
+        </div>
+    </section>
+
+    <section id="about" class="py-12 sm:py-16 md:py-20 lg:py-24 bg-gray-800">
+        <div class="container mx-auto px-4 sm:px-6">
+            <h2 class="section-title text-3xl sm:text-4xl"><span>¿</span>Qué es PIPA<span>?</span></h2>
+             <p class="section-subtitle text-base sm:text-lg mb-10 sm:mb-12">
+                Somos un espacio <span class="text-white font-semibold">inclusivo y colaborativo</span> para explorar el universo de la tecnología y el desarrollo de software. No importa tu carrera o si nunca has escrito una línea de código: <span class="text-white font-semibold">¡todos son bienvenidos!</span>
+            </p>
+            <div class="grid grid-cols-1 md:grid-cols-3 gap-6 md:gap-8 lg:gap-10 text-center">
+                 <div class="bg-gray-900 p-6 sm:p-8 rounded-lg border-l-4 border-inacap-red shadow-2xl transition duration-300 hover:shadow-red-500/30">
+                     <svg class="activity-icon" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 20l4-16m4 4l4 4-4 4M6 16l-4-4 4-4"/></svg>
+                    <h3 class="text-xl sm:text-2xl font-semibold mb-3">Aprende Jugando</h3>
+                    <p class="text-gray-400 text-sm sm:text-base">Desde la web hasta Arduinos, exploramos tecnologías de forma práctica y divertida.</p>
+                </div>
+                 <div class="bg-gray-900 p-6 sm:p-8 rounded-lg border-l-4 border-inacap-red shadow-2xl transition duration-300 hover:shadow-red-500/30">
+                    <svg class="activity-icon" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16m14 0h2m-2 0h-5m-9 0H3m2 0h5M9 7h1m-1 4h1m4-4h1m-1 4h1m-5 10v-5a1 1 0 011-1h2a1 1 0 011 1v5m-4 0h4" /></svg>
+                    <h3 class="text-xl sm:text-2xl font-semibold mb-3">Crea Proyectos</h3>
+                    <p class="text-gray-400 text-sm sm:text-base">Trabaja en equipo, desarrolla tus ideas y construye soluciones con impacto real.</p>
+                </div>
+                 <div class="bg-gray-900 p-6 sm:p-8 rounded-lg border-l-4 border-inacap-red shadow-2xl transition duration-300 hover:shadow-red-500/30">
+                    <svg class="activity-icon" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 8h2a2 2 0 012 2v6a2 2 0 01-2 2h-2v4l-4-4H9a1.994 1.994 0 01-1.414-.586m0 0L11 14h4a2 2 0 002-2V6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2v4l.586-.586z" /></svg>
+                    <h3 class="text-xl sm:text-2xl font-semibold mb-3">Conecta y Colabora</h3>
+                    <p class="text-gray-400 text-sm sm:text-base">Comparte conocimientos, haz amigos y forma parte de la comunidad tech de INACAP.</p>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <section id="activities" class="py-12 sm:py-16 md:py-20 lg:py-24 bg-gray-900">
+        <div class="container mx-auto px-4 sm:px-6">
+            <h2 class="section-title text-3xl sm:text-4xl"><span>N</span>uestras <span>A</span>ctividades</h2>
+             <p class="section-subtitle text-base sm:text-lg mb-10 sm:mb-12">
+                Esto es lo que tenemos preparado para despertar tu pasión por la tecnología este año:
+            </p>
+            <div class="grid grid-cols-1 md:grid-cols-3 gap-6 md:gap-8 lg:gap-10 text-center">
+                <div class="bg-gray-900 p-6 sm:p-8 rounded-lg border-l-4 border-inacap-red shadow-2xl transition duration-300 hover:shadow-red-500/30"> 
+                    <svg class="activity-icon" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 6.253v13m0-13C10.832 5.477 9.246 5 7.5 5S4.168 5.477 3 6.253v13C4.168 18.523 5.754 18 7.5 18s3.332.523 4.5 1.253m0-13C13.168 5.477 14.754 5 16.5 5s3.332.523 4.5 1.253v13C19.832 18.523 18.246 18 16.5 18s-3.332.523-4.5 1.253" /></svg>
+                    <h3 class="text-xl sm:text-2xl font-semibold mb-3">Desarrollo Web del Club</h3>
+                    <p class="text-gray-400 text-sm sm:text-base">Construcción colaborativa de nuestra plataforma web para compartir conocimientos y novedades.</p>
+                </div>
+                <div class="bg-gray-900 p-6 sm:p-8 rounded-lg border-l-4 border-inacap-red shadow-2xl transition duration-300 hover:shadow-red-500/30">
+                    <svg class="activity-icon" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 14l9-5-9-5-9 5 9 5zm0 0l-3 3m3-3l3 3m-3-3l-3-3m3 3l3-3m-3-3l-3-3" /></svg>
+                    <h3 class="text-xl sm:text-2xl font-semibold mb-3">Explorando con Arduinos</h3>
+                    <p class="text-gray-400 text-sm sm:text-base">Sesiones prácticas para aprender a programar y controlar el mundo físico con Arduino.</p>
+                </div>
+                <div class="bg-gray-900 p-6 sm:p-8 rounded-lg border-l-4 border-inacap-red shadow-2xl transition duration-300 hover:shadow-red-500/30">
+                    <svg class="activity-icon" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 17h5l-1.405-1.405A2.032 2.032 0 0118 14.158V11a6.002 6.002 0 00-4-5.659m0 0A6.002 6.002 0 002 11v3.159c0 .538-.214 1.055-.595 1.436L4 17h5m6 0v1a3 3 0 11-6 0v-1m6 0H9" /></svg>
+                    <h3 class="text-xl sm:text-2xl font-semibold mb-3">Talleres de Programación</h3>
+                    <p class="text-gray-400 text-sm sm:text-base">Desde principiantes hasta avanzados, profundizaremos en diversos lenguajes y herramientas.</p>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <section id="meetings" class="meetings-bg bg-inacap-red py-16 sm:py-20 md:py-24">
+        <div class="meetings-content p-8 sm:p-10 md:p-12 mx-4 sm:mx-auto">
+            <h2 class="text-3xl sm:text-4xl md:text-5xl font-bold mb-2">¡Encuéntranos en el <span class="leica-highlight">LEICA</span>!</h2>
+            <p class="location-info text-base sm:text-lg md:text-xl">
+                <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-5 h-5 sm:w-6 sm:h-6">
+                    <path stroke-linecap="round" stroke-linejoin="round" d="M15 10.5a3 3 0 11-6 0 3 3 0 016 0z" />
+                    <path stroke-linecap="round" stroke-linejoin="round" d="M19.5 10.5c0 7.142-7.5 11.25-7.5 11.25S4.5 17.642 4.5 10.5a7.5 7.5 0 1115 0z" />
+                </svg>
+                <span>Laboratorio LEICA, Segundo Piso</span>
+            </p>
+            <div class="meetings-time p-4 sm:p-5 text-lg sm:text-xl md:text-2xl">
+                <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-7 h-7 sm:w-8 sm:h-8">
+                    <path stroke-linecap="round" stroke-linejoin="round" d="M6.75 3v2.25M17.25 3v2.25M3 18.75V7.5a2.25 2.25 0 012.25-2.25h13.5A2.25 2.25 0 0121 7.5v11.25m-18 0A2.25 2.25 0 005.25 21h13.5A2.25 2.25 0 0021 18.75m-18 0v-7.5A2.25 2.25 0 015.25 9h13.5A2.25 2.25 0 0121 11.25v7.5m-9-6h.008v.008H12v-.008zM12 15h.008v.008H12V15zm0 2.25h.008v.008H12v-.008zM9.75 15h.008v.008H9.75V15zm0 2.25h.008v.008H9.75v-.008zM7.5 15h.008v.008H7.5V15zm0 2.25h.008v.008H7.5v-.008zm6.75-4.5h.008v.008h-.008v-.008zm0 2.25h.008v.008h-.008V15zm0 2.25h.008v.008h-.008v-.008zm2.25-4.5h.008v.008H16.5v-.008zm0 2.25h.008v.008H16.5V15z" />
+                </svg>
+                <span>SÁBADOS <br class="md:hidden"> 15:00 - 17:00 HRS</span>
+            </div>
+        </div>
+    </section>
+
+    <section id="register" class="py-12 sm:py-16 md:py-20 lg:py-24 bg-gray-800">
+        <div class="container mx-auto px-4 sm:px-6">
+            <h2 class="section-title text-3xl sm:text-4xl"><span>Ú</span>nete a <span>P</span>IPA</h2>
+            <p class="section-subtitle text-base sm:text-lg mb-10 sm:mb-12">
+                Rellena este formulario y prepárate para ser parte de la revolución tecnológica en INACAP Punta Arenas.
+            </p>
+            <form id="registrationForm" class="max-w-2xl mx-auto bg-gray-900 p-6 sm:p-8 rounded-lg shadow-xl border border-gray-700">
+                 <div class="grid grid-cols-1 md:grid-cols-2 gap-4 sm:gap-6 mb-4 sm:mb-6">
+                    <div>
+                        <label for="nombre" class="block text-sm font-medium text-gray-300 mb-1 sm:mb-2">Nombre Completo</label>
+                        <input type="text" name="nombre" id="nombre" class="form-input text-sm sm:text-base" required>
+                    </div>
+                    <div>
+                        <label for="rut" class="block text-sm font-medium text-gray-300 mb-1 sm:mb-2">RUT</label>
+                        <input type="text" name="rut" id="rut" class="form-input text-sm sm:text-base" placeholder="12345678-9" required pattern="\d{7,8}-[\dkK]">
+                    </div>
+                </div>
+
+                <div class="mb-4 sm:mb-6">
+                    <label for="carrera" class="block text-sm font-medium text-gray-300 mb-1 sm:mb-2">Carrera</label>
+                    <input type="text" name="carrera" id="carrera" class="form-input text-sm sm:text-base" required>
+                </div>
+
+                <div class="grid grid-cols-1 md:grid-cols-2 gap-4 sm:gap-6 mb-4 sm:mb-6">
+                    <div>
+                        <label for="semestre" class="block text-sm font-medium text-gray-300 mb-1 sm:mb-2">Semestre</label>
+                        <select name="semestre" id="semestre" class="form-input text-sm sm:text-base" required>
+                            <option value="" disabled selected>Selecciona...</option>
+                            <option value="1">1</option> <option value="2">2</option> <option value="3">3</option>
+                            <option value="4">4</option> <option value="5">5</option> <option value="6">6</option>
+                            <option value="7">7</option> <option value="8">8</option>
+                            <option value="egresado">Egresado/Titulado</option> <option value="otro">Otro</option>
+                        </select>
+                    </div>
+                    <div>
+                        <label for="emailInacap" class="block text-sm font-medium text-gray-300 mb-1 sm:mb-2">Correo INACAP</label>
+                        <input type="email" name="emailInacap" id="emailInacap" class="form-input text-sm sm:text-base" placeholder="tu.correo@inacapmail.cl" required pattern=".+@inacapmail\.cl$">
+                    </div>
+                </div>
+
+                <div class="mb-6 sm:mb-8">
+                    <label for="motivacion" class="block text-sm font-medium text-gray-300 mb-1 sm:mb-2">¿Por qué quieres unirte? (Opcional)</label>
+                    <textarea name="motivacion" id="motivacion" rows="3" class="form-input text-sm sm:text-base"></textarea>
+                </div>
+
+                <div class="text-center">
+                    <button type="submit" class="btn-primary px-10 sm:px-12 py-2.5 sm:py-3 text-sm sm:text-base">Enviar</button>
+                </div>
+                <div id="registrationStatus" class="mt-6 text-center text-sm"></div>
+                <div id="emailConfirmationStatus" class="mt-2 text-center text-sm"></div>
+            </form>
+        </div>
+    </section>
+
+    <footer class="bg-gray-900 text-gray-500 py-6 sm:py-8 border-t border-gray-800">
+        <div class="container mx-auto px-4 sm:px-6 text-center text-xs sm:text-sm">
+             <img src="IMG/logo.png" alt="Logo INACAP" class="h-6 sm:h-8 mx-auto mb-3 sm:mb-4 filter brightness-0 invert opacity-50" onerror="this.alt='Logo INACAP'; this.src='https://placehold.co/100x40/cccccc/ffffff?text=INACAP';">
+            <p>&copy; <span id="currentYear"></span> Club de Programación PIPA - INACAP Sede Punta Arenas.</p>
+            <p>Construyendo el futuro, una línea de código a la vez.</p>
+        </div>
+    </footer>
+
+    <script>
+        document.getElementById('currentYear').textContent = new Date().getFullYear();
+
+        const header = document.querySelector('header'); 
+        const mobileMenu = document.getElementById('mobile-menu'); 
+
+        function getHeaderHeight() {
+            if (!header) return 70; 
+            return header.offsetHeight;
+        }
+
+        document.querySelectorAll('a.smooth-scroll').forEach(anchor => {
+            anchor.addEventListener('click', function (e) {
+                e.preventDefault();
+                const targetId = this.getAttribute('href');
+                const targetElement = document.querySelector(targetId);
+                if (targetElement) {
+                   const headerHeight = getHeaderHeight();
+                   window.scrollTo({
+                       top: targetElement.offsetTop - headerHeight, 
+                       behavior: 'smooth'
+                   });
+                   if (mobileMenu && !mobileMenu.classList.contains('hidden')) {
+                       mobileMenu.classList.add('hidden');
+                       const mobileMenuButton = document.getElementById('mobile-menu-button');
+                       if (mobileMenuButton) {
+                           mobileMenuButton.setAttribute('aria-expanded', 'false');
+                       }
+                       mobileMenu.setAttribute('aria-hidden', 'true');
+                   }
+                }
+            });
+        });
+
+        const sections = document.querySelectorAll('section[id]'); 
+        const navLinksDesktop = document.querySelectorAll('header nav.hidden a.smooth-scroll'); 
+        const navLinksMobileMenu = document.querySelectorAll('#mobile-menu nav a.smooth-scroll');
+
+
+        window.addEventListener('scroll', () => {
+            let current = '';
+            const headerHeight = getHeaderHeight();
+
+            sections.forEach(section => {
+                const sectionTop = section.offsetTop;
+                if(pageYOffset >= sectionTop - (headerHeight + 10)) { 
+                    current = section.getAttribute('id');
+                }
+            });
+            
+            navLinksDesktop.forEach(link => {
+                link.classList.remove('active-link');
+                const linkHref = link.getAttribute('href');
+                if(linkHref && linkHref.substring(1) === current) {
+                    link.classList.add('active-link');
+                }
+            });
+            
+             navLinksMobileMenu.forEach(link => {
+                const isButton = link.classList.contains('btn-primary');
+                const linkHref = link.getAttribute('href');
+
+                link.classList.remove('active-link');
+                if (!isButton) { 
+                    link.classList.remove('bg-gray-700', 'text-white');
+                    link.classList.add('text-gray-300'); 
+                }
+
+                if (linkHref && linkHref.substring(1) === current) {
+                    link.classList.add('active-link'); 
+                    if (!isButton) { 
+                        link.classList.add('bg-gray-700', 'text-white');
+                        link.classList.remove('text-gray-300');
+                    }
+                }
+            });
+        });
+
+        const mobileMenuButton = document.getElementById('mobile-menu-button');
+        
+        if (mobileMenuButton && mobileMenu) {
+            mobileMenuButton.addEventListener('click', () => {
+                const isCurrentlyHidden = mobileMenu.classList.contains('hidden');
+                mobileMenu.classList.toggle('hidden');
+                mobileMenuButton.setAttribute('aria-expanded', isCurrentlyHidden); 
+                mobileMenu.setAttribute('aria-hidden', !isCurrentlyHidden); 
+            });
+        }
+    </script>
+</body>
+</html>
